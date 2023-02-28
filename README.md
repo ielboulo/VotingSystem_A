@@ -6,9 +6,13 @@ Projet #1
 
 
   Contract: Voting
+  
     Registration Test
+   
       ✔ should allow owner to add voters (107ms)
+      
       ✔ should not allow non-owner to add voters (1094ms)
+      
       ✔ should not allow owner to add the same voter twice (82ms)
       ✔ should not allow owner to add voters when registration is not open (113ms)
       ✔ should not allow owner to add empty address as voter
