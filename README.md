@@ -25,9 +25,13 @@ The unitary tests implemented aim to test every state of the voting system : fro
       ✔ should allow only owner to tally 
       ✔ should not tally if not in VotingSessionEnded State (128ms)
       ✔ should tally correctly (962ms)
+    State Change Tests - applied to startProposalsRegistering() only, as the mecanism is exactly the same, only name state changes.
+      ✔ should allow only owner to tally  (1492ms)
+      ✔ should not change state if not in the right State (96ms)
+      ✔ should change to next state if is in the right State + check event  (394ms)
 
 
-  17 passing (10s)
+  20 passing (10s)
 
 
  
