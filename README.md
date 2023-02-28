@@ -1,11 +1,8 @@
 # VotingSystem - Unitary Tests
 
-Projet - Système de vote
 
-Projet #1
+The unitary tests implemented aim to test every state of the voting system : from registration, to propsal registration, voting, and finally tallying. 
 
-
-  Contract: Voting
   
     Registration Tests:
       ✔ should allow owner to add voters (107ms)
