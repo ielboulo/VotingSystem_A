@@ -220,4 +220,31 @@ describe("Tally Test", () => {
 
 });// fin describe
 
+describe("State Change Test", () => {
+  let votingInstance_5;
+  beforeEach(async () => {
+    votingInstance_5 = await Voting.new({ from: owner });
+  });
+
+  it("should allow only owner to tally ", async () => {
+    await expectRevert(votingInstance_5.startProposalsRegistering( { from: voter1 }), "Ownable: caller is not the owner");
+  });
+
+  it("should not change state if not in the right State", async () => {
+    await votingInstance_5.setWorkflowStatus(Voting.WorkflowStatus.ProposalsRegistrationStarted, { from: owner });
+    await expectRevert(votingInstance_5.startProposalsRegistering({ from: owner }),
+      "Registering proposals cant be started now");
+  });
+
+  it("should change to next state if is in the right State + check event ", async () => {
+    await votingInstance_5.setWorkflowStatus(Voting.WorkflowStatus.RegisteringVoters, { from: owner });
+    const receipt = await votingInstance_5.startProposalsRegistering({ from: owner });
+    expectEvent(receipt, 'WorkflowStatusChange', {
+      previousStatus: new BN(Voting.WorkflowStatus.RegisteringVoters),
+      newStatus: new BN(Voting.WorkflowStatus.ProposalsRegistrationStarted),
+    });
+  });
+
+});// fin describe
+  
 });// fin contract
