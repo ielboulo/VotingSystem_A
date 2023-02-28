@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 pragma solidity 0.8.13;
-import "../node_modules/@openzeppelin/contracts/access/Ownable.sol";
+
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 
 contract Voting is Ownable {
@@ -33,6 +34,7 @@ contract Voting is Ownable {
     mapping (address => Voter) voters;
 
 
+
     event VoterRegistered(address voterAddress); 
     event WorkflowStatusChange(WorkflowStatus previousStatus, WorkflowStatus newStatus);
     event ProposalRegistered(uint proposalId);
@@ -55,11 +57,27 @@ contract Voting is Ownable {
         return proposalsArray[_id];
     }
 
- 
-    // ::::::::::::: REGISTRATION ::::::::::::: // 
+    // ::::::::::::: SET & GET  workflowStatus / WinningID for testing purpose ::::::::::::: //
 
+    function setWorkflowStatus(WorkflowStatus _status) external onlyOwner {
+        workflowStatus = _status;
+    }
+
+    function getWorkflowStatus() external view returns (WorkflowStatus) {
+        return workflowStatus;
+    }
+
+    function getWinnerID() external view returns (uint){
+        return winningProposalID;
+    }
+    
+    // ::::::::::::: Invalid_adress ::::::::::::: //
+    address _invalid_address = 0x0000000000000000000000000000000000000000;
+
+    // ::::::::::::: REGISTRATION ::::::::::::: // 
     function addVoter(address _addr) external onlyOwner {
         require(workflowStatus == WorkflowStatus.RegisteringVoters, 'Voters registration is not open yet');
+        require(_addr != _invalid_address, 'Voters cant have invalid address');
         require(voters[_addr].isRegistered != true, 'Already registered');
     
         voters[_addr].isRegistered = true;
