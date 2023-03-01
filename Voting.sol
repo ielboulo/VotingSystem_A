@@ -1,161 +1,250 @@
-// SPDX-License-Identifier: MIT
+const Voting = artifacts.require("./Voting.sol");
+const { BN , expectRevert, expectEvent } = require('@openzeppelin/test-helpers');
+const { expect } = require('chai');
 
-pragma solidity 0.8.13;
+contract("Voting", accounts => {
+  const owner = accounts[0];
+  const voter1 = accounts[1];
+  const voter2 = accounts[2];
+  const voter3 = accounts[3];
+  const voter4 = accounts[4];
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+  describe("Registration Test", () => {
+    let votingInstance;
 
+    beforeEach(async () => {
+      votingInstance = await Voting.new({ from: owner });
+    });
 
-contract Voting is Ownable {
+    it("should allow owner to add voters", async () => {
+      votingInstance.workflowStatus = Voting.WorkflowStatus.RegisteringVoters;
+      const { logs } = await votingInstance.addVoter(voter1, { from: owner });
 
-    uint public winningProposalID;
+      assert.equal(logs[0].event, "VoterRegistered", "VoterRegistered event should be emitted");
+      assert.equal(logs[0].args.voterAddress, voter1, "Event should have the correct voter address");  
+
+      const newVoter = await votingInstance.getVoter.call(voter1, { from: voter1 }); // { from: voter1 } : this helps to initialize msg.sender
+      assert.isTrue(newVoter.isRegistered, "Voter should be registered");
+    });
+
+    it("should not allow non-owner to add voters", async () => {
+      votingInstance.workflowStatus = Voting.WorkflowStatus.RegisteringVoters;
+      await expectRevert(votingInstance.addVoter(voter1, { from: voter2 }),
+        "Ownable: caller is not the owner");
+    });
+
+    it("should not allow owner to add the same voter twice", async () => {
+      await votingInstance.addVoter(voter1, { from: owner });
+      await expectRevert(votingInstance.addVoter(voter1, { from: owner }),
+        "Already registered");
+    });
+
+    it("should not allow owner to add voters when registration is not open", async () => {
+
+      //votingInstance.workflowStatus = Voting.WorkflowStatus.VotesTallied; //==> this code line had no effect. I had to define set and get functions setWorkflowStatus in voting.sol
+      await votingInstance.setWorkflowStatus(Voting.WorkflowStatus.VotesTallied, { from: owner });
+      const workflowStatus = await votingInstance.workflowStatus();
+      assert.equal(workflowStatus, Voting.WorkflowStatus.VotesTallied);
     
-    struct Voter {
-        bool isRegistered;
-        bool hasVoted;
-        uint votedProposalId;
-    }
+      await expectRevert(
+        votingInstance.addVoter(voter4, { from: owner }),
+        "Voters registration is not open yet");
+      });
 
-    struct Proposal {
-        string description;
-        uint voteCount;
-    }
-
-    enum  WorkflowStatus {
-        RegisteringVoters,
-        ProposalsRegistrationStarted,
-        ProposalsRegistrationEnded,
-        VotingSessionStarted,
-        VotingSessionEnded,
-        VotesTallied
-    }
-
-    WorkflowStatus public workflowStatus;
-    Proposal[] proposalsArray;
-    mapping (address => Voter) voters;
+      // TDD :-) =>  the code wasn't expecting this use case , we should enhance Voting.sol with checking invalid address. 
+      it("should not allow owner to add empty address as voter", async () => {
+        await expectRevert(
+          votingInstance.addVoter("0x0000000000000000000000000000000000000000", { from: owner }),
+          "Voters cant have invalid address"
+        );
+      });
+  }); // fin describe
 
 
+describe("Proposal Test", () => {
+  let votingInstance_2;
 
-    event VoterRegistered(address voterAddress); 
-    event WorkflowStatusChange(WorkflowStatus previousStatus, WorkflowStatus newStatus);
-    event ProposalRegistered(uint proposalId);
-    event Voted (address voter, uint proposalId);
-    
-    modifier onlyVoters() {
-        require(voters[msg.sender].isRegistered, "You're not a voter");
-        _;
-    }
-    
-    // on peut faire un modifier pour les états
+  beforeEach(async () => {
+    votingInstance_2 = await Voting.new({ from: owner });
+    await votingInstance_2.setWorkflowStatus(Voting.WorkflowStatus.RegisteringVoters, { from: owner });
+    await votingInstance_2.addVoter(voter1, { from: owner });
+    await votingInstance_2.addVoter(voter2, { from: owner });
+    await votingInstance_2.setWorkflowStatus(Voting.WorkflowStatus.ProposalsRegistrationStarted, { from: owner });
+  });
 
-    // ::::::::::::: GETTERS ::::::::::::: //
+  it("should allow voter1 to add a new proposal", async () => {
+    const proposal = "Proposal 1";
+    const { logs } = await votingInstance_2.addProposal(proposal, { from: voter1 });
+  
+    // check proposal added event
+    proposalVoteCount = new BN(0);
+    assert.equal(logs[0].event, "ProposalRegistered", "ProposalRegistered event should be emitted");
+    expect(logs[0].args.proposalId).to.be.bignumber.equal(proposalVoteCount);
+  
+    // check proposal data
+    const proposalData = await votingInstance_2.getOneProposal.call(new BN(0), { from: voter1 });
+    assert.equal(proposalData.description, proposal, "Proposal should be " + proposal);
+    expect(proposalData.voteCount).to.be.bignumber.equal(proposalVoteCount);
 
-    function getVoter(address _addr) external onlyVoters view returns (Voter memory) {
-        return voters[_addr];
-    }
-    
-    function getOneProposal(uint _id) external onlyVoters view returns (Proposal memory) {
-        return proposalsArray[_id];
-    }
-
-    // ::::::::::::: SET & GET  workflowStatus / WinningID for testing purpose ::::::::::::: //
-
-    function setWorkflowStatus(WorkflowStatus _status) external onlyOwner {
-        workflowStatus = _status;
-    }
-
-    function getWorkflowStatus() external view returns (WorkflowStatus) {
-        return workflowStatus;
-    }
-
-    function getWinnerID() external view returns (uint){
-        return winningProposalID;
-    }
-    
-    // ::::::::::::: Invalid_adress ::::::::::::: //
-    address _invalid_address = 0x0000000000000000000000000000000000000000;
-
-    // ::::::::::::: REGISTRATION ::::::::::::: // 
-    function addVoter(address _addr) external onlyOwner {
-        require(workflowStatus == WorkflowStatus.RegisteringVoters, 'Voters registration is not open yet');
-        require(_addr != _invalid_address, 'Voters cant have invalid address');
-        require(voters[_addr].isRegistered != true, 'Already registered');
-    
-        voters[_addr].isRegistered = true;
-        emit VoterRegistered(_addr);
-    }
- 
-
-    // ::::::::::::: PROPOSAL ::::::::::::: // 
-
-    function addProposal(string calldata _desc) external onlyVoters {
-        require(workflowStatus == WorkflowStatus.ProposalsRegistrationStarted, 'Proposals are not allowed yet');
-        require(keccak256(abi.encode(_desc)) != keccak256(abi.encode("")), 'Vous ne pouvez pas ne rien proposer'); // facultatif
-        // voir que desc est different des autres
-
-        Proposal memory proposal;
-        proposal.description = _desc;
-        proposalsArray.push(proposal);
-        emit ProposalRegistered(proposalsArray.length-1);
-    }
-
-    // ::::::::::::: VOTE ::::::::::::: //
-
-    function setVote( uint _id) external onlyVoters {
-        require(workflowStatus == WorkflowStatus.VotingSessionStarted, 'Voting session havent started yet');
-        require(voters[msg.sender].hasVoted != true, 'You have already voted');
-        require(_id < proposalsArray.length, 'Proposal not found'); // pas obligé, et pas besoin du >0 car uint
-
-        voters[msg.sender].votedProposalId = _id;
-        voters[msg.sender].hasVoted = true;
-        proposalsArray[_id].voteCount++;
-
-        emit Voted(msg.sender, _id);
-    }
-
-    // ::::::::::::: STATE ::::::::::::: //
+  });
 
 
-    function startProposalsRegistering() external onlyOwner {
-        require(workflowStatus == WorkflowStatus.RegisteringVoters, 'Registering proposals cant be started now');
-        workflowStatus = WorkflowStatus.ProposalsRegistrationStarted;
-        
-        Proposal memory proposal;
-        proposal.description = "GENESIS";
-        proposalsArray.push(proposal);
-        
-        emit WorkflowStatusChange(WorkflowStatus.RegisteringVoters, WorkflowStatus.ProposalsRegistrationStarted);
-    }
+  it("should not add an empty proposal by voter2", async () => {
+    proposal_empty = "";
+    await expectRevert(
+      votingInstance_2.addProposal(proposal_empty, { from: voter2 }), 
+      "Vous ne pouvez pas ne rien proposer");
+  });
 
-    function endProposalsRegistering() external onlyOwner {
-        require(workflowStatus == WorkflowStatus.ProposalsRegistrationStarted, 'Registering proposals havent started yet');
-        workflowStatus = WorkflowStatus.ProposalsRegistrationEnded;
-        emit WorkflowStatusChange(WorkflowStatus.ProposalsRegistrationStarted, WorkflowStatus.ProposalsRegistrationEnded);
-    }
+  it("should not allow non-voters to add proposals - voter3", async () => {
+    const proposal3 = "Proposal 3";
+    await expectRevert(
+      votingInstance_2.addProposal(proposal3, { from: voter4 }),
+      "You're not a voter");
+  });
 
-    function startVotingSession() external onlyOwner {
-        require(workflowStatus == WorkflowStatus.ProposalsRegistrationEnded, 'Registering proposals phase is not finished');
-        workflowStatus = WorkflowStatus.VotingSessionStarted;
-        emit WorkflowStatusChange(WorkflowStatus.ProposalsRegistrationEnded, WorkflowStatus.VotingSessionStarted);
-    }
+  it("should not add proposals if not in ProposalsRegistrationStarted", async () => {
+    const proposal1 = "Proposal 1";
+    await votingInstance_2.setWorkflowStatus(Voting.WorkflowStatus.RegisteringVoters, { from: owner });
 
-    function endVotingSession() external onlyOwner {
-        require(workflowStatus == WorkflowStatus.VotingSessionStarted, 'Voting session havent started yet');
-        workflowStatus = WorkflowStatus.VotingSessionEnded;
-        emit WorkflowStatusChange(WorkflowStatus.VotingSessionStarted, WorkflowStatus.VotingSessionEnded);
-    }
+    await expectRevert(
+      votingInstance_2.addProposal(proposal1, { from: voter1 }), // voter1 is already registered
+      "Proposals are not allowed yet");
+  });
+
+});// fin describe
 
 
-   function tallyVotes() external onlyOwner {
-       require(workflowStatus == WorkflowStatus.VotingSessionEnded, "Current status is not voting session ended");
-       uint _winningProposalId;
-      for (uint256 p = 0; p < proposalsArray.length; p++) {
-           if (proposalsArray[p].voteCount > proposalsArray[_winningProposalId].voteCount) {
-               _winningProposalId = p;
-          }
-       }
-       winningProposalID = _winningProposalId;
-       
-       workflowStatus = WorkflowStatus.VotesTallied;
-       emit WorkflowStatusChange(WorkflowStatus.VotingSessionEnded, WorkflowStatus.VotesTallied);
-    }
-}
+describe("Vote Test", () => {
+  let votingInstance_3;
+
+  beforeEach(async () => {
+    votingInstance_3 = await Voting.new({ from: owner });
+    await votingInstance_3.setWorkflowStatus(Voting.WorkflowStatus.RegisteringVoters, { from: owner });
+    await votingInstance_3.addVoter(voter1, { from: owner });
+    await votingInstance_3.setWorkflowStatus(Voting.WorkflowStatus.ProposalsRegistrationStarted, { from: owner });
+    await votingInstance_3.addProposal('proposal1', { from: voter1 });
+    await votingInstance_3.setWorkflowStatus(Voting.WorkflowStatus.VotingSessionStarted, { from: owner });
+  });
+
+  it("should allow voter1 to vote ", async () => {
+    const proposalID = new BN(0);
+    const { logs } = await votingInstance_3.setVote(proposalID, { from: voter1 });
+  
+    // check proposal added event //     event Voted (address voter, uint proposalId);
+    assert.equal(logs[0].event, "Voted", "Voted event should be emitted");
+    expect(logs[0].args.voter).to.equal(voter1);
+    expect(logs[0].args.proposalId).to.be.bignumber.equal(proposalID);
+  });
+
+  it("should not allow voter2 to vote ", async () => {
+    const proposalID = new BN(0);
+    await expectRevert(
+      votingInstance_3.addProposal(proposalID, { from: voter2 }),
+      "You're not a voter");
+  });
+
+  it("should not use invalid proposalID ", async () => {
+    const proposalID = new BN(10);
+    await expectRevert(votingInstance_3.setVote(proposalID, { from: voter1 }),
+      "Proposal not found");
+  });
+
+  it("should not vote twice ", async () => {
+    const proposalID = new BN(0);
+    //first vote ok
+    const { logs } = await votingInstance_3.setVote(proposalID, { from: voter1 });
+    assert.equal(logs[0].event, "Voted", "Voted event should be emitted");
+
+    // second vote NOK 
+    await await expectRevert(votingInstance_3.setVote(proposalID, { from: voter1 }),
+    "You have already voted");
+  });
+
+  it("should not vote if not in VotingSessionStarted", async () => {
+    const proposal_id = new BN(0);
+    await votingInstance_3.setWorkflowStatus(Voting.WorkflowStatus.RegisteringVoters, { from: owner });
+
+    await expectRevert(
+      votingInstance_3.setVote(proposal_id, { from: voter1 }), // voter1 is already registered
+      "Voting session havent started yet");
+  });
+
+});// fin describe
+
+
+describe("Tally Test", () => {
+  let votingInstance_4;
+  beforeEach(async () => {
+    votingInstance_4 = await Voting.new({ from: owner });
+  });
+
+  it("should allow only owner to tally ", async () => {
+    await expectRevert(votingInstance_4.tallyVotes( { from: voter1 }), "Ownable: caller is not the owner");
+  });
+
+  it("should not tally if not in VotingSessionEnded State", async () => {
+    await votingInstance_4.setWorkflowStatus(Voting.WorkflowStatus.RegisteringVoters, { from: owner });
+    await expectRevert(votingInstance_4.tallyVotes({ from: owner }),
+      "Current status is not voting session ended");
+  });
+
+  it("should tally correctly", async () => {
+    await votingInstance_4.setWorkflowStatus(Voting.WorkflowStatus.RegisteringVoters, { from: owner });
+    await votingInstance_4.addVoter(voter1, { from: owner });
+    await votingInstance_4.addVoter(voter2, { from: owner });
+    await votingInstance_4.addVoter(voter4, { from: owner });
+
+    await votingInstance_4.setWorkflowStatus(Voting.WorkflowStatus.ProposalsRegistrationStarted, { from: owner });
+    await votingInstance_4.addProposal('proposal1', { from: voter1 });
+    await votingInstance_4.addProposal('proposal2', { from: voter2 });
+    await votingInstance_4.addProposal('proposal3', { from: voter4 });
+
+    await votingInstance_4.setWorkflowStatus(Voting.WorkflowStatus.VotingSessionStarted, { from: owner });
+    await votingInstance_4.setVote(new BN(2), { from: voter1 }); // voter 1 votes for proposal3 (index2)
+    await votingInstance_4.setVote(new BN(1), { from: voter2 }); // voter 2 votes for proposal2 (index1)
+    await votingInstance_4.setVote(new BN(2), { from: voter4 }); // voter 4 votes for proposal3 (index2)
+
+    await votingInstance_4.setWorkflowStatus(Voting.WorkflowStatus.VotingSessionEnded, { from: owner });
+    const { logs } = await votingInstance_4.tallyVotes({ from: owner });
+
+    // check the status changed correctly
+    assert.equal(logs[0].event, "WorkflowStatusChange", "WorkflowStatusChange event should be emitted");
+    expect(logs[0].args.previousStatus).to.be.bignumber.equal(new BN(Voting.WorkflowStatus.VotingSessionEnded));
+    expect(logs[0].args.newStatus).to.be.bignumber.equal(new BN(Voting.WorkflowStatus.VotesTallied));
+
+    // check winning ID :
+    const winningProposalID  = await votingInstance_4.winningProposalID();
+    expect(winningProposalID).to.be.bignumber.equal(new BN(2)); 
+
+  });
+});// fin describe
+
+describe("State Change Test", () => {
+  let votingInstance_5;
+  beforeEach(async () => {
+    votingInstance_5 = await Voting.new({ from: owner });
+  });
+
+  it("should allow only owner to tally ", async () => {
+    await expectRevert(votingInstance_5.startProposalsRegistering( { from: voter1 }), "Ownable: caller is not the owner");
+  });
+
+  it("should not change state if not in the right State", async () => {
+    await votingInstance_5.setWorkflowStatus(Voting.WorkflowStatus.ProposalsRegistrationStarted, { from: owner });
+    await expectRevert(votingInstance_5.startProposalsRegistering({ from: owner }),
+      "Registering proposals cant be started now");
+  });
+
+  it("should change to next state if is in the right State + check event ", async () => {
+    await votingInstance_5.setWorkflowStatus(Voting.WorkflowStatus.RegisteringVoters, { from: owner });
+    const receipt = await votingInstance_5.startProposalsRegistering({ from: owner });
+    expectEvent(receipt, 'WorkflowStatusChange', {
+      previousStatus: new BN(Voting.WorkflowStatus.RegisteringVoters),
+      newStatus: new BN(Voting.WorkflowStatus.ProposalsRegistrationStarted),
+    });
+  });
+
+});// fin describe
+
+});// fin contract
