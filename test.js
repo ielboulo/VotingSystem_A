@@ -41,15 +41,16 @@ contract("Voting", accounts => {
 
     it("should not allow owner to add voters when registration is not open", async () => {
 
-      //votingInstance.workflowStatus = Voting.WorkflowStatus.VotesTallied; //==> this code line had no effect. I had to define set and get functions setWorkflowStatus / getWorkflowStatus in voting.sol
+      //votingInstance.workflowStatus = Voting.WorkflowStatus.VotesTallied; //==> this code line had no effect. I had to define set and get functions setWorkflowStatus in voting.sol
       await votingInstance.setWorkflowStatus(Voting.WorkflowStatus.VotesTallied, { from: owner });
-      const workflowStatus = await votingInstance.getWorkflowStatus();
+      const workflowStatus = await votingInstance.workflowStatus();
       assert.equal(workflowStatus, Voting.WorkflowStatus.VotesTallied);
     
       await expectRevert(
         votingInstance.addVoter(voter4, { from: owner }),
         "Voters registration is not open yet");
       });
+
       // TDD :-) =>  the code wasn't expecting this use case , we should enhance Voting.sol with checking invalid address. 
       it("should not allow owner to add empty address as voter", async () => {
         await expectRevert(
@@ -213,11 +214,10 @@ describe("Tally Test", () => {
     expect(logs[0].args.newStatus).to.be.bignumber.equal(new BN(Voting.WorkflowStatus.VotesTallied));
 
     // check winning ID :
-    const wID = await votingInstance_4.getWinnerID();
-    expect(wID).to.be.bignumber.equal(new BN(2)); 
+    const winningProposalID  = await votingInstance_4.winningProposalID();
+    expect(winningProposalID).to.be.bignumber.equal(new BN(2)); 
 
   });
-
 });// fin describe
 
 describe("State Change Test", () => {
@@ -246,5 +246,5 @@ describe("State Change Test", () => {
   });
 
 });// fin describe
-  
+
 });// fin contract
